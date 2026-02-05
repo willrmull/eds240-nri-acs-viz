@@ -9,119 +9,99 @@ execute:
 ---
 
 ### Load Required Packages
-***
+
+------------------------------------------------------------------------
+
 ```{r}
 library(tidyverse)
 library(here)
-library(treemapify)
+library(ggridges)
+library(sysfonts)
+library(showtext)
+library(forcats)
 library(scales)
 ```
 
-### Read in NRI Data
-***
+### Read in and Clean NRI Data
+
+------------------------------------------------------------------------
+
 ```{r}
 # Read in Raw Data
 nri_raw <- read.csv(here::here("data", "National_Risk_Index_Counties_807384124455672111.csv")) %>%
     janitor::clean_names() 
+
+# Remove Territories and Add Column to Distinguish California
+nri_clean <- nri_raw %>% filter((state_fips_code <= 56) & (state_fips_code != 11)) %>% 
+      mutate(highlight = ifelse(state_name == "California", "California", "Not California"))
+
+# Add Font For Styling
+font_add_google(name = "Merriweather", family = "Merriweather")
+showtext_auto()
 ```
 
-### Dictionary for Clasifying Regions
-***
-```{r}
-# Census Bureau regions (4 regions)
-us_census_regions <- list(
-  
-  Northeast = c("Connecticut", "Maine", "Massachusetts", "New Hampshire",
-                "Rhode Island", "Vermont", "New Jersey", "New York",
-                "Pennsylvania"),
-  
-  Midwest = c("Illinois", "Indiana", "Iowa", "Kansas", "Michigan",
-              "Minnesota", "Missouri", "Nebraska", "North Dakota",
-              "Ohio", "South Dakota", "Wisconsin"),
-  
-  South = c("Alabama", "Arkansas", "Delaware", "Florida", "Georgia",
-            "Kentucky", "Louisiana", "Maryland", "Mississippi",
-            "North Carolina", "Oklahoma", "South Carolina", "Tennessee",
-            "Texas", "Virginia", "West Virginia", "Washington DC"),
-  
-  West = c("Alaska", "Arizona", "California", "Colorado", "Hawaii",
-           "Idaho", "Montana", "Nevada", "New Mexico", "Oregon",
-           "Utah", "Washington", "Wyoming")
-)
-```
+### Ridgeline Plot
 
-### Data Cleaning
-***
-```{r}
-# Create state level dataframe with added region column
-nri_regions <- nri_raw %>% group_by(state_name, state_name_abbreviation) %>%
-    summarize(national_risk_index_score_composite = mean(national_risk_index_score_composite, na.rm = TRUE),
-    social_vulnerability_score = mean(social_vulnerability_score, na.rm = TRUE)) %>%
-    mutate(region = case_when(
-    state_name %in% us_census_regions$Northeast ~ "Northeast",
-    state_name %in% us_census_regions$Midwest ~ "Midwest",
-    state_name %in% us_census_regions$South ~ "South",
-    state_name %in% us_census_regions$West ~ "West"
-)) %>%
-    filter(region != is.na(region)) # Remove territories from dataframe
-```
+------------------------------------------------------------------------
 
-### Treemap Visualization
 ```{r}
-#| fig-alt: "Treemap displaying 2025 NRI data across US states where tile size represents the NRI score for each state and color indicates the social vulnerability score from purple (low, ~0) to yellow (high, ~80). States are grouped by region (Northeast, Midwest, South, West)."
-ggplot(nri_regions, 
-       aes(area = national_risk_index_score_composite, 
-           fill = social_vulnerability_score, 
-           label = state_name_abbreviation,
-           subgroup = region)) +
-  geom_treemap(layout = "squarified") +
-  geom_treemap_subgroup_border(color = "white", 
-                                layout = "squarified",
-                                size = 5) +
-  geom_treemap_text(fontface = "bold", 
-                    color = muted("white", l = 110, c = 10), 
-                    place = "centre", 
-                    min.size = 2, 
-                    grow = TRUE) + 
-  scale_fill_viridis_c("Social\nVulnerability\nScore", 
-                       limits = c(0, 80)) +
+#| fig-asp: 1.75
+#| fig-alt: "Ridgeline plot comparing the distribution of National Risk Index scores for counties across all 50 US states. States are ordered by median NRI score from lowest to highest. California is highlighted in yellow, showing its counties have the highest median risk scores nationally. Other states are depicted in gray."
+
+ggplot(nri_clean,
+       aes(y = fct_reorder(state_name, 
+                           national_risk_index_score_composite,
+                           .fun = median,
+                           na.rm = TRUE), 
+           x = national_risk_index_score_composite,
+           fill = highlight,
+           color = highlight,
+           alpha = highlight)) +
+  scale_x_continuous(limits = c(0, 100)) +
+  geom_density_ridges(scale = 1) +
+  labs(title = "California Counties Face the Highest Risk \nto Natural Hazards",
+       subtitle = "Distribution of of County NRI Scores by State With California \nHighlighted in Yellow",
+       caption = "Data: FEMA National Risk Index (2025 Release)",
+       x = "National Risk Index Score",
+       y = NULL) +
+  scale_alpha_manual(values = c("California" = 1, "Not California" = 0.5)) +
+  scale_fill_manual(values = c("California" = "#E4CA14", "Not California" = "#6C6F81")) +
+  scale_color_manual(values = c("California" = "#E4CA14", "Not California" = "#6C6F81")) +
+  coord_cartesian(clip = "off") +
   theme_minimal() +
-  theme(legend.position = "right",
-        plot.title = element_text(hjust = 0.5,
-                                  face = "bold",
-                                  size = 16),
+  theme(plot.title = element_text(face = "bold", size = 16, lineheight = 1),
         plot.title.position = "plot",
-        legend.title = element_text(face = "bold",
-                                     size = 12),
-        legend.text = element_text(size = 10),
-        legend.key.size = unit(0.9, "cm")) + 
-  labs(title = "National Risk Index and Social Vulnerability\nAcross US States",
-       caption = "Data: FEMA National Risk Index (2025 Release)")
+        plot.subtitle = element_text(color = "gray10",size = 12, lineheight = 1),
+        plot.caption = element_text(hjust = 1, color = "grey40", size = 8),
+        legend.title = element_blank(),
+        axis.text.y = element_text(size = 10),
+        legend.position = "none",
+        text = element_text(family = "Merriweather"))
 ```
 
 ### Questions
 
 **1. What are your variables of interest and what kinds of data (e.g. numeric, categorical, ordered, etc.) are they (a bullet point list is fine)**
 
-- National Risk Index Composite Score: A numeric variable representing the cumulative risk of a community to the 18 hazards included in the index.
-- Social Vulnerability Index Composite Score: A numeric variable measuring a communities resiliance to outside stressors.
-- Region: A categorical variable grouping states into geographic regions (Northeast, Midwest, South, West).
+-   National Risk Index Composite Score: A numeric variable, ranging from 0 to 100, representing the cumulative risk of a community to the 18 natural hazards included in the index.
+-   State: Nominal categorical variable used to group together counties
 
 **2. How did you decide which type of graphic form was best suited for answering the question? What alternative graphic forms could you have used instead? Why did you settle on this particular graphic form?**
 
-I settled on using a treemap as it felt like the best way to visualize data from all 50 states individually without making a map. The treemap allows viewers to quickly assess both numeric variables quickly by just looking at tile size and colors. I debated using a horizontal bar graph or bubble chart instead, but decided on a treemap as, in addition to the advantages mentioned earlier, it allowed me to group the individual states by region.
+When choosing a graphic for this assignment I wanted to pick something that would allow for me to display the data from all of the states without introducing too much visual clutter. to do this I considered doing either a ridgeline plot, as I ended up doing, or a column graph showing the median NRI scores by county. I decided on the ridgeline plot as I think being able to see the distribution of the values is more interesting than just seeing the median.
 
 **3. Summarize your main finding in no more than two sentences.**
 
-States in the South show higher social vulnerability scores compared to other regions, even when compared states with similar National Risk Index scores. Furthermore, states like Louisiana, Mississippi, Alabama, and Arkansas have both high risk scores (large tiles) and high social vulnerability (yellow coloring).
+California has the highest median National Risk Index score among all 50 US states, with most of the counties having a score above 75. This indicates that counties in California face substantially risk from natural hazards when compared to counties in other states.
 
 **4. What modifications did you make to this visualization to make it more easily readable?**
 
-- I used bold white text for state abbreviations to make sure the text was readable
-- I grouped the data by region and added a 5pt white dividing line to help distinguish the regions 
-- I used the viridis color scale as it is colorblind-friendly
-- I increased the size of the legend and it's text to make it more easily readable
+-   I increased the aspect ratio to make the graph taller. This allows for the ridgelines to be more easily visible
+-   I formatted all of the text by adjusting the size and color.
+-   I used color blind friendly yellow and gray values when highlighting the data.
+-   I removed the legend and y axis labels as they do not add anything to the plot. Doing this helps remove clutter from the graph.
+-   I ordered the states by median NRI score
 
 **5. Is there anything you wanted to implement, but didn’t know how? If so, please describe.**
 
-I wanted to add region labels positioned outside each regional grouping on the plot. The `geom_treemap_subgroup_text()` function in the treemapify package only lets you place labels labels inside the grouped boxes, which ends up interfering with the the labels on the boxes. 
+I did not have anything that I wanted to implement that I wasn't able to. I'm fairly happy with how this graph turned out.
